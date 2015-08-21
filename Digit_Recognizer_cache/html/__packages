@@ -1,0 +1,13 @@
+base
+readr
+magrittr
+dplyr
+lattice
+ggplot2
+caret
+rpart
+reshape2
+nlme
+mgcv
+randomForest
+e1071
