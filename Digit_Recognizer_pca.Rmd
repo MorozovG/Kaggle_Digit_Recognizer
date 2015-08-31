@@ -1,0 +1,241 @@
+---
+title: "Применение метода PCA для построения предсказательной модели"
+author: "Морозов Глеб"
+date: "24 августа 2015 г."
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+В данной работе показано применения PCA (метода главных компонент) с целью уменьшения размерности данных на примере данных представленных в рамках соревнования [Digit Recognizer](https://www.kaggle.com/c/digit-recognizer) проводимого на сайте [Kaggle](https://www.kaggle.com). В качестве инструмента проведения исследования используется язык R.
+
+### Вступление
+Данная работа является естественным продолжением [исследования](https://github.com/MorozovG/Kaggle_Digit_Recognizer/blob/master/Digit_Recognizer.md), изучающего зависимость качества модели от размера выборки. В ней для была показана возможность уменьшения количества используемых объектов в обучающей выборке с целью получения приемлимых результатов в условиях ограниченных вычислительных ресурсов. Но, кроме количества объектов, на размер данных влияет и количество используемых признаков. Рассмотрим эту возможность на тех же данных. Используемые данные были подробно изучены в предыдущей работе, поэтому просто загрузим тренировочную выборку в R. 
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, cache=T)
+```
+
+```{r results="hide"}
+library(readr)
+library(caret)
+library(ggbiplot)
+library(ggplot2)
+library(dplyr)
+library(rgl)
+```
+
+```{r cache=T}
+data_train <- read_csv("train.csv")
+```
+
+Как мы уже знаем данные имеют 42000 объектов и 784 признака, представляющие собой значение яркости каждого из пикселей составляющего изображение цифры. Разобъём выборку на тренировочную и тестовую в соотношении 60/40.
+
+```{r cache=T}
+set.seed(111)
+split <- createDataPartition(data_train$label, p = 0.6, list = FALSE)
+train <- slice(data_train, split)
+test <- slice(data_train, -split)
+```
+
+Теперь удалим признаки, имеющие константное значение.
+
+```{r cache=T}
+zero_var_col <- nearZeroVar(train, saveMetrics = T)
+train <- train[, !zero_var_col$nzv]
+test <- test[, !zero_var_col$nzv]
+dim(train)
+```
+
+В итоге осталось 253 признака.
+
+### Теория
+
+Метод главных компонент (PCA) преобразует базовые признаки в новые, каждый из которых является линейной комбинацией изначальных таким образом, что разброс данных (то есть среднеквадратичное отклонение от среднего значения) вдоль них максимален. Метод применяется для визуализации данных и для уменьшения размерности данных (сжатия).
+
+### PCA
+
+Для большей наглядности случайным образом отберём из тренировочной выборки 1000 объектов и изобразим их в пространстве первых двух признаков.
+
+```{r cache=T}
+train_1000 <- train[sample(nrow(train), size = 1000),]
+ggplot(data = train_1000, aes(x = pixel152, y = pixel153, color = factor(label))) + geom_point()
+```
+
+Очевидно, что объекты перемешаны и выделить среди них группы объектов принадлежащих одному классу проблематично. Проведём преобразование данных по методу главных компонент и изобразим в пространстве первых двух компонент. Замечу, что компоненты расположены в убывающем порядке в зависимости от разброса данных, который приходится вдоль них.
+
+```{r cache=T}
+pc <- princomp(train_1000[, -1], cor=TRUE, scores=TRUE)
+ggbiplot(pc, obs.scale = 1, var.scale = 1, groups = factor(train_1000$label),
+         ellipse = TRUE, circle = F, var.axes = F) + 
+        scale_color_discrete(name = '') + 
+        theme(legend.direction = 'horizontal', legend.position = 'top')
+```
+
+Очевидно, что даже в пространстве всего лишь двух признаков уже можно выделить явные группы объектов. Теперь рассмотрим те же данные, но уже в пространстве первых трёх компонент. (Трёхмерное изображение можно вращать и приближать)
+
+```{r setup, include=FALSE}
+library(knitr)
+knit_hooks$set(webgl = hook_webgl)
+```
+
+```{r, webgl=TRUE}
+plot3d(pc$scores[,1:3], col= train_1000$label + 1, size = 0.7, type = "s")
+```
+
+Выделение различных классов ещё больше упростилось. Теперь выберем количество компонент, которое будем использовать для дальнейшей работы. Для этого посмотрим на соотношение дисперсии и количество компонент объясняющие её, но уже используя всю тренировочную выборку.
+
+```{r cache=T}
+pc <- princomp(train[, -1], cor=TRUE, scores=TRUE)
+variance <- pc$sdev^2/sum(pc$sdev^2)
+cumvar <- cumsum(variance)
+cumvar <- data.frame(PC = 1:252, CumVar = cumvar)
+ggplot(data = cumvar, aes(x = PC, y = CumVar)) + geom_point()
+variance <- data.frame(PC = 1:252, Var = variance*100)
+ggplot(data = variance[1:10,], aes(x = factor(PC), y = Var)) + geom_bar(stat = "identity")
+sum(variance$Var[1:70])
+```
+
+Для того, чтобы сохранить более 90 процентов информации, содержащейся в данных достаточно всего лишь 70 компонент, т.е. мы от 784 признаков пришли к 70 и, при этом, потеряли менее 10 процентов вариации данных!
+
+Преобразуем тренировочную и тестовую выборки в пространство главных компонент.
+
+```{r cache=T}
+train <- predict(pc) %>% cbind(train$label, .) %>% as.data.frame(.) %>% select(1:71)
+colnames(train)[1]<- "label"
+train$label <- as.factor(train$label)
+test %<>% predict(pc, .) %>% cbind(test$label, .) %>% as.data.frame(.) %>% select(1:71)
+colnames(test)[1]<- "label"
+```
+
+Для выбора параметров моделей я использую пакет `caret`, предоставляющий возможность выполнять параллельные вычисления, используя многоядерность современных процессоров. Поэтому, для ускорения вычислений, я подключу второе ядро процессора своего компьютера.
+
+```{r}
+library("doParallel")
+cl <- makePSOCKcluster(2)
+registerDoParallel(cl)
+```
+
+### KNN
+
+Теперь приступим к созданию предсказывающих моделей используя преобразованные данные. Создадим первую модель используя метод k ближайших соседей (KNN). В этой модели есть только один параметр - количество ближайших объектов, используемых для классификации объекта. Подбирать этот параметр будем с помощью десятикратной кросс-проверки (10-fold cross-validation (CV)) с разбиением выборки на 10 частей. Оценка производится на случайно отобранной части изначальных объектов. Для оценки качества моделей будем использовать статистику `Accuracy`, представляющий собой процент точно предсказанных классов объектов.
+
+```{r}
+set.seed(111)
+train_1000 <- train[sample(nrow(train), size = 1000),]
+ctrl <- trainControl(method="repeatedcv",repeats = 3)
+```
+
+Для начала определим область поиска значений параметра.
+
+```{r cache=T}
+knnFit <- train(label ~ ., data = train_1000, method = "knn", trControl = ctrl,tuneLength = 20)
+knnFit
+```
+
+Теперь сократим её и получим точное значение.
+
+```{r cache=T}
+grid <- expand.grid(k=2:5)
+knnFit <- train(label ~ ., data = train_1000, method = "knn", trControl = ctrl, tuneGrid=grid)
+knnFit
+```
+
+Наилучший показатель модель имеет при значении параметра k равному 3. Используя это значение получим предсказание на тестовых данных. Построим `Confusion Table` и вычислим `Accuracy`.
+
+```{r cache=T}
+library(class)
+prediction_knn <- knn(train, test, train$label, k=3)
+table(test$label, prediction_knn)
+sum(diag(table(test$label, prediction_knn)))/nrow(test)
+```
+
+### Random Forest
+
+Вторая модель - это Random Forest. У этой модели будем выбирать параметр `mtry` - количество используемых признаков при получении каждого из используемых в ансамбле деревьев. Для выбора наилучшего значения данного параметра пойдём тем же путём, что и ранее.
+
+```{r cache=T}
+rfFit <- train(label ~ ., data = train_1000, method = "rf", trControl = ctrl,tuneLength = 3)
+rfFit
+```
+
+```{r cache=T}
+grid <- expand.grid(mtry=2:6)
+rfFit <- train(label ~ ., data = train_1000, method = "rf", trControl = ctrl,tuneGrid=grid)
+rfFit
+```
+
+Выбираем `mtry` равным 4 и получаем `Accuracy` на тестовых данных. Замечу, что пришлось обучать модель на части от доступных тренировочных данных, т.к. для использования всех данных требуется больше оперативной памяти. Но, как показано в предыдущей работе, это не сильно повлияет на конечный результат.
+
+```{r cache=T}
+library(randomForest)
+rfFit <- randomForest(label ~ ., data = train[sample(nrow(train), size = 15000),], mtry = 4)
+prediction_rf<-predict(rfFit,test)
+table(test$label, prediction_rf)
+sum(diag(table(test$label, prediction_rf)))/nrow(test)
+```
+
+### SVM
+
+И, наконец, Support Vector Machine. В этой модели будет использоваться `Radial Kernel` и подбираются уже два параметра: `sigma` (регуляризационный параметр) и `C` (параметр, определяющий форму ядра).
+
+```{r cache=T}
+svmFit <- train(label ~ ., data = train_1000, method = "svmRadial", trControl = ctrl,tuneLength = 5)
+svmFit
+```
+
+```{r cache=T}
+grid <- expand.grid(C = 4:6, sigma = seq(0.006, 0.009, 0.001))
+svmFit <- train(label ~ ., data = train_1000, method = "svmRadial", trControl = ctrl,tuneGrid=grid)
+svmFit
+```
+
+```{r cache=T}
+library(kernlab)
+svmFit <- ksvm(label ~ ., data = train,type="C-svc",kernel="rbfdot",kpar=list(sigma=0.008),C=4)
+prediction_svm <- predict(svmFit, newdata = test)
+table(test$label, prediction_svm)
+sum(diag(table(test$label, prediction_svm)))/nrow(test)
+```
+
+### Ансамбль моделей
+
+Создадим четвёртую модель, которая представляет собой ансамбль из трёх моделей, созданных ранее. Эта модель предсказывает то значение, за которое "голосует" большинство из использованных моделей.
+
+```{r cache=T}
+all_prediction <- cbind(as.numeric(levels(prediction_knn))[prediction_knn], 
+                as.numeric(levels(prediction_rf))[prediction_rf], 
+                as.numeric(levels(prediction_svm))[prediction_svm])
+
+predictions_ensemble <- apply(all_prediction, 1, function(row) {
+        row %>% table(.) %>% which.max(.) %>% names(.) %>% as.numeric(.)
+        })
+table(test$label, predictions_ensemble)
+sum(diag(table(test$label, predictions_ensemble)))/nrow(test)
+```
+
+### Итоги
+
+На тестовой выборке получены следующие результаты:
+
+|Model|Test Accuracy|
+|:-----:|:--------:|
+|KNN    |0.981   |
+|Random Forest|0.948|
+|SVM|0.971|
+|Ensemble|0.974|
+
+Лучший показатель `Accuracy` имеет модель использующая метод k ближайших соседей (KNN). 
+
+Оценка моделей на сайте Kaggle приведена в следующей таблице.
+
+|Model|Kaggle Accuracy|
+|:-----:|:--------:|
+|KNN    |0.97171   |
+|Random Forest|0.93286|
+|SVM|0.97786|
+|Ensemble|0.97471|
+
+И лучшие результаты здесь у SVM.
+
+

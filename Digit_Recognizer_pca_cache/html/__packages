@@ -1,0 +1,17 @@
+base
+readr
+lattice
+ggplot2
+caret
+plyr
+scales
+ggbiplot
+dplyr
+rgl
+foreach
+iterators
+doParallel
+class
+randomForest
+kernlab
+knitr
