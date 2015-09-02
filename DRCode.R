@@ -99,3 +99,56 @@ for (n in 1:5 )
 rf_model <- train(label ~ ., data = train, method = "rf")
 
 f <- as.formula(paste('lable ~', paste(names(train_nn)[!n %in% 'y'], collapse = ' + ')))
+
+
+set.seed(100)
+train_1000 <- data_train[sample(nrow(data_train), size = 1000),]
+colors<-c('white','black')
+cus_col<-colorRampPalette(colors=colors)
+
+default_par <- par()
+
+number_row <- 28
+number_col <- 28
+par(mfrow=c(6,6),pty='s',mar=c(1,1,1,1),xaxt='n',yaxt='n')
+for(i in 1:36)
+{
+        z<-array(as.matrix(train_1000)[i,-1],dim=c(number_row,number_col))
+        z<-z[,number_col:1] 
+        image(1:number_row,1:number_col,z,main=train_1000[i,1],col=cus_col(256))
+}
+par(default_par)
+
+zero_var_col <- nearZeroVar(train_1000, saveMetrics = T)
+train_1000_cut <- train_1000[, !zero_var_col$nzv]
+
+test <- data.frame(matrix(NA, nrow = 1000, ncol = ncol(train_1000)))
+zero_col_number <- 1
+for (i in 1:ncol(train_1000)) {
+        if (zero_var_col$nzv[i] == F) {
+                test[, i] <- restr[, zero_col_number]
+                zero_col_number <- zero_col_number + 1
+        }
+        else test[, i] <- train_1000[, i]
+}
+
+pc <- princomp(train_1000[, -1], cor=TRUE, scores=TRUE)
+pca <- prcomp(train_1000_cut[, -1], center = TRUE, scale = TRUE)
+
+restr <- pca$x[,1:70] %*% t(pca$rotation[,1:70])
+
+if(pca$scale != FALSE){
+        restr <- scale(restr, center = FALSE , scale=1/pca$scale)
+}
+if(all(pca$center != FALSE)){
+        restr <- scale(restr, center = -1 * pca$center, scale=FALSE)
+}
+
+par(mfrow=c(6,6),pty='s',mar=c(1,1,1,1),xaxt='n',yaxt='n')
+for(i in 1:36)
+{
+        z<-array(as.matrix(test)[i,-1],dim=c(number_row,number_col))
+        z<-z[,number_col:1] 
+        image(1:number_row,1:number_col,z,main=test[i,1],col=cus_col(256))
+}
+par(default_par)

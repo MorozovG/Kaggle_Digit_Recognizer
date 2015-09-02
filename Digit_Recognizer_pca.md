@@ -2936,7 +2936,7 @@ canvas.addEventListener("mousewheel", wheelHandler, false);
 You must enable Javascript to view this page properly.</p>
 <script>unnamed_chunk_7rgl.start();</script>
 
-Выделение различных классов ещё больше упростилось. Теперь выберем количество компонент, которое будем использовать для дальнейшей работы. Для этого посмотрим на соотношение дисперсию и количество компонент объясняющие её, но уже используя всю тренировочную выборку.
+Выделение различных классов ещё больше упростилось. Теперь выберем количество компонент, которое будем использовать для дальнейшей работы. Для этого посмотрим на соотношение дисперсии и количество компонент объясняющие её, но уже используя всю тренировочную выборку.
 
 
 ```r
@@ -3364,5 +3364,69 @@ sum(diag(table(test$label, predictions_ensemble)))/nrow(test)
 |Ensemble|0.97471|
 
 И лучшие результаты здесь у SVM.
+
+### Eigenfaces
+
+Ну и напоследок, уже из чистого любопытства, посмотрим наглядно на произведённые методом главных компонент преобразования. Для этого, во-первых получим изображение цифр в первоначальном виде.
+
+
+```r
+set.seed(100)
+train_1000 <- data_train[sample(nrow(data_train), size = 1000),]
+colors<-c('white','black')
+cus_col<-colorRampPalette(colors=colors)
+default_par <- par()
+number_row <- 28
+number_col <- 28
+par(mfrow=c(5,5),pty='s',mar=c(1,1,1,1),xaxt='n',yaxt='n')
+for(i in 1:25)
+{
+        z<-array(as.matrix(train_1000)[i,-1],dim=c(number_row,number_col))
+        z<-z[,number_col:1]
+        image(1:number_row,1:number_col,z,main=train_1000[i,1],col=cus_col(256))
+}
+```
+
+![](Digit_Recognizer_pca_files/figure-html/unnamed-chunk-22-1.png) 
+
+```r
+par(default_par)
+```
+
+И изображение этих же цифр, но уже после того, как мы использовали метод PCA и оставили первые 70 компонент. Получившиеся объекты принято называть eigenfaces
+
+
+```r
+zero_var_col <- nearZeroVar(train_1000, saveMetrics = T)
+train_1000_cut <- train_1000[, !zero_var_col$nzv]
+pca <- prcomp(train_1000_cut[, -1], center = TRUE, scale = TRUE)
+restr <- pca$x[,1:70] %*% t(pca$rotation[,1:70])
+restr <- scale(restr, center = FALSE , scale=1/pca$scale)
+restr <- scale(restr, center = -1 * pca$center, scale=FALSE)
+restr <- as.data.frame(cbind(train_1000_cut$label, restr))
+test <- data.frame(matrix(NA, nrow = 1000, ncol = ncol(train_1000)))
+zero_col_number <- 1
+for (i in 1:ncol(train_1000)) {
+        if (zero_var_col$nzv[i] == F) {
+                test[, i] <- restr[, zero_col_number]
+                zero_col_number <- zero_col_number + 1
+        }
+        else test[, i] <- train_1000[, i]
+}
+par(mfrow=c(5,5),pty='s',mar=c(1,1,1,1),xaxt='n',yaxt='n')
+for(i in 1:25)
+{
+        z<-array(as.matrix(test)[i,-1],dim=c(number_row,number_col))
+        z<-z[,number_col:1]
+        image(1:number_row,1:number_col,z,main=test[i,1],col=cus_col(256))
+}
+```
+
+![](Digit_Recognizer_pca_files/figure-html/unnamed-chunk-23-1.png) 
+
+```r
+par(default_par)
+```
+
 
 
